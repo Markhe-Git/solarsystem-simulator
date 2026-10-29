@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASTRONAV // Monochrome Keplerian Orbital Engine</title>
+  
+  <!-- Tailwind CSS & Fonts -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Orbitron:wght@600;800;900&display=swap" rel="stylesheet">
+  
+  <!-- Three.js & OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+  <style>
+    :root {
+      --font-ui: 'Orbitron', sans-serif;
+      --font-mono: 'Fira Code', monospace;
+    }
+    body {
+      font-family: var(--font-mono);
+      background-color: #ffffff;
+      color: #000000;
+      overflow: hidden;
+    }
+    .font-ui { font-family: var(--font-ui); }
+    
+    /* Custom High-Contrast Scrollbar */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; border-left: 1px solid #000; }
+    ::-webkit-scrollbar-thumb { background: #000000; }
+
+    /* Stark Monochrome Sliders */
+    input[type=range] {
+      accent-color: #000000;
+    }
+
+    /* Scientific HUD Blueprint Panels */
+    .hud-panel {
+      background: rgba(255, 255, 255, 0.92);
+      border: 2px solid #000000;
+      box-shadow: 4px 4px 0px #000000;
+    }
+
+    .hud-card {
+      background: #f8f9fa;
+      border: 1px solid #000000;
+    }
+
+    .hud-btn {
+      background: #ffffff;
+      border: 1.5px solid #000000;
+      color: #000000;
+      font-family: var(--font-mono);
+      font-weight: 600;
+      transition: all 0.15s ease;
+      box-shadow: 2px 2px 0px #000000;
+    }
+
+    .hud-btn:hover {
+      background: #000000;
+      color: #ffffff;
+      box-shadow: 0px 0px 0px #000000;
+    }
+
+    .hud-btn.active {
+      background: #000000;
+      color: #ffffff;
+      box-shadow: inset 2px 2px 0px rgba(255,255,255,0.2);
+    }
+
+    /* Blueprint Technical Grid Overlay */
+    .blueprint-overlay {
+      background-image: 
+        linear-gradient(to right, rgba(0, 0, 0, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+
+    /* Hover Cursor Tooltip */
+    #hover-tooltip {
+      position: absolute;
+      pointer-events: none;
+      z-index: 50;
+      display: none;
+      background: rgba(255, 255, 255, 0.96);
+      border: 2px solid #000000;
+      box-shadow: 3px 3px 0px #000000;
+      padding: 8px 12px;
+      max-width: 240px;
+    }
+  </style>
+</head>
+<body class="relative h-screen w-screen select-none bg-white text-black">
+
+  <!-- Hover Cursor Tooltip Element -->
+  <div id="hover-tooltip">
+    <div id="tooltip-title" class="font-ui text-xs font-black text-black uppercase border-b border-black pb-0.5 mb-1 tracking-wider">OBJECT_NAME</div>
+    <div id="tooltip-desc" class="text-[10px] font-medium text-black leading-tight">Description text...</div>
+  </div>
+
+  <!-- Background Technical Grid & Canvas Container -->
+  <div class="blueprint-overlay absolute inset-0 pointer-events-none z-10 opacity-70"></div>
+  <div id="canvas-container" class="absolute inset-0 z-0 bg-white"></div>
+
+  <!-- HUD Interface Wrapper -->
+  <div class="relative z-20 flex flex-col justify-between h-full p-4 pointer-events-none">
+    
+    <!-- HEADER BAR -->
+    <header class="hud-panel pointer-events-auto rounded-none px-5 py-3 flex flex-wrap justify-between items-center gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-3.5 h-3.5 bg-black animate-ping"></div>
+        <div>
+          <h1 class="font-ui text-lg font-black tracking-widest text-black uppercase">ASTRONAV // ORBITAL_SCHEMATIC</h1>
+          <p class="text-[11px] font-bold text-slate-700 tracking-wider">KEPLERIAN EPHEMERIS ENGINE • MONOCHROME LAB MODE</p>
+        </div>
+      </div>
+
+      <!-- Quick Toggles -->
+      <div class="flex items-center flex-wrap gap-2 text-xs">
+        <button id="btn-scale" class="hud-btn px-3 py-1.5 uppercase">SCALE: VISUAL FOCUS</button>
+        <button id="btn-view" class="hud-btn px-3 py-1.5 uppercase">VIEW: 3D ORBIT</button>
+        <button id="btn-reset-cam" class="hud-btn px-3 py-1.5 uppercase">RESET CAMERA</button>
+      </div>
+    </header>
+
+    <!-- MIDDLE WORKSPACE: LEFT CONTROL TABS & RIGHT TELEMETRY INSPECTOR -->
+    <div class="flex-1 my-3 flex justify-between gap-4 min-h-0 pointer-events-none">
+      
+      <!-- LEFT PANEL: VISUAL TOGGLES & CELESTIAL NAVIGATOR -->
+      <aside class="hud-panel pointer-events-auto w-72 p-4 flex flex-col gap-4 overflow-y-auto">
+        
+        <!-- Celestial Focus Selector -->
+        <div>
+          <h2 class="font-ui text-xs font-black text-black mb-2 tracking-widest uppercase border-b-2 border-black pb-1 flex justify-between">
+            <span>TARGET SELECTOR</span>
+            <span class="text-[10px] text-slate-600">[ORBITAL]</span>
+          </h2>
+          <div id="planet-buttons-list" class="grid grid-cols-2 gap-1.5 text-xs">
+            <!-- Dynamic Buttons Generated via JS -->
+          </div>
+        </div>
+
+        <!-- Display Toggles -->
+        <div>
+          <h2 class="font-ui text-xs font-black text-black mb-2 tracking-widest uppercase border-b-2 border-black pb-1">SCHEMATIC LAYERS</h2>
+          <div class="space-y-1.5 text-xs font-semibold text-black">
+            <label class="flex items-center justify-between cursor-pointer hover:bg-slate-100 p-1 border border-transparent hover:border-black">
+              <span>Orbit Ellipses</span>
+              <input type="checkbox" id="toggle-orbits" checked class="accent-black">
+            </label>
+            <label class="flex items-center justify-between cursor-pointer hover:bg-slate-100 p-1 border border-transparent hover:border-black">
+              <span>Asteroid Belt</span>
+              <input type="checkbox" id="toggle-asteroids" checked class="accent-black">
+            </label>
+            <label class="flex items-center justify-between cursor-pointer hover:bg-slate-100 p-1 border border-transparent hover:border-black">
+              <span>Kuiper Belt Shell</span>
+              <input type="checkbox" id="toggle-kuiper" checked class="accent-black">
+            </label>
+            <label class="flex items-center justify-between cursor-pointer hover:bg-slate-100 p-1 border border-transparent hover:border-black">
+              <span>Velocity Vectors</span>
+              <input type="checkbox" id="toggle-vectors" class="accent-black">
+            </label>
+            <label class="flex items-center justify-between cursor-pointer hover:bg-slate-100 p-1 border border-transparent hover:border-black">
+              <span>Grid Reference</span>
+              <input type="checkbox" id="toggle-grid" checked class="accent-black">
+            </label>
+          </div>
+        </div>
+
+        <!-- Technical Information -->
+        <div class="hud-card p-2.5 text-[11px] text-black font-medium leading-tight">
+          <div class="font-bold border-b border-black pb-1 mb-1 uppercase tracking-wider">KEPLER'S 2ND LAW</div>
+          <p>Orbits feature realistic eccentricity. Velocity varies continuously based on heliocentric distance $r$ (Vis-Viva Equation).</p>
+        </div>
+      </aside>
+
+      <!-- RIGHT PANEL: PLANET TELEMETRY HUD -->
+      <aside id="telemetry-panel" class="hud-panel pointer-events-auto w-80 p-4 flex flex-col gap-3 overflow-y-auto">
+        <div class="flex justify-between items-start border-b-2 border-black pb-2">
+          <div>
+            <span class="text-[10px] text-slate-600 font-bold tracking-widest block uppercase">TELEMETRY DATA</span>
+            <h2 id="target-name" class="font-ui text-2xl font-black text-black">SUN</h2>
+          </div>
+          <span id="target-type" class="text-[10px] font-bold px-2 py-0.5 bg-black text-white border border-black uppercase">STAR</span>
+        </div>
+
+        <!-- Telemetry Data Grid -->
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <div class="hud-card p-2">
+            <span class="text-[9px] font-bold text-slate-600 block uppercase">DISTANCE (SUN)</span>
+            <span id="telemetry-dist" class="font-bold text-black font-mono">0.00 AU</span>
+          </div>
+          <div class="hud-card p-2">
+            <span class="text-[9px] font-bold text-slate-600 block uppercase">ORBITAL SPEED</span>
+            <span id="telemetry-speed" class="font-bold text-black font-mono">0.0 km/s</span>
+          </div>
+          <div class="hud-card p-2">
+            <span class="text-[9px] font-bold text-slate-600 block uppercase">ORBITAL PERIOD</span>
+            <span id="telemetry-period" class="font-bold text-black font-mono">N/A</span>
+          </div>
+          <div class="hud-card p-2">
+            <span class="text-[9px] font-bold text-slate-600 block uppercase">ECCENTRICITY (e)</span>
+            <span id="telemetry-ecc" class="font-bold text-black font-mono">0.0000</span>
+          </div>
+          <div class="hud-card p-2">
+            <span class="text-[9px] font-bold text-slate-600 block uppercase">INCLINATION (i)</span>
+            <span id="telemetry-inc" class="font-bold text-black font-mono">0.00°</span>
+          </div>
+          <div class="hud-card p-2">
+            <span class="text-[9px] font-bold text-slate-600 block uppercase">MEAN TEMP</span>
+            <span id="telemetry-temp" class="font-bold text-black font-mono">5,500 °C</span>
+          </div>
+        </div>
+
+        <!-- Descriptive Note -->
+        <div class="hud-card p-3 text-xs text-black leading-relaxed">
+          <span class="text-[10px] font-black border-b border-black block pb-0.5 mb-1 uppercase tracking-wider">PHYSICAL SPECIFICATION</span>
+          <p id="target-desc">The central G-type main-sequence star of our Solar System. Contains 99.86% of the system mass.</p>
+        </div>
+
+        <!-- Satellite / Moons List -->
+        <div id="moons-container" class="hidden">
+          <span class="text-[10px] font-black text-black tracking-wider block mb-1 uppercase">KNOWN SATELLITES</span>
+          <div id="moons-list" class="flex flex-wrap gap-1 text-[11px]"></div>
+        </div>
+      </aside>
+
+    </div>
+
+    <!-- FOOTER: TIME CONTROL ENGINE & GRID METRIC HUD -->
+    <footer class="hud-panel pointer-events-auto rounded-none px-5 py-3 flex flex-wrap justify-between items-center gap-4">
+      
+      <!-- Date Display & Picker -->
+      <div class="flex items-center gap-3">
+        <div>
+          <span class="text-[10px] font-bold text-slate-600 block uppercase tracking-wider">SIMULATION EPOCH</span>
+          <span id="current-date-display" class="font-ui text-base font-black text-black tracking-widest">2026-10-29</span>
+        </div>
+        <input type="date" id="date-picker" class="hud-btn text-xs px-2 py-1 cursor-pointer">
+      </div>
+
+      <!-- Playback Controls -->
+      <div class="flex items-center gap-2">
+        <button id="btn-reverse" class="hud-btn px-3 py-1.5 text-xs">◀ REV</button>
+        <button id="btn-play" class="hud-btn active px-4 py-1.5 font-black text-xs">PAUSE</button>
+        <button id="btn-forward" class="hud-btn px-3 py-1.5 text-xs">FWD ▶</button>
+      </div>
+
+      <!-- Time Speed Slider -->
+      <div class="flex items-center gap-3 w-56">
+        <span class="text-xs font-bold text-black whitespace-nowrap">SPEED:</span>
+        <input type="range" id="time-speed-slider" min="0" max="7" step="0.1" value="3" class="w-full h-2 bg-slate-300 rounded-none cursor-pointer border border-black">
+        <span id="time-speed-label" class="text-xs font-black text-black w-20 text-right font-mono">1 Day/s</span>
+      </div>
+
+      <!-- Grid Metric Scale Display -->
+      <div class="hud-card px-3 py-1.5 text-right flex flex-col justify-center border border-black bg-white">
+        <span class="text-[9px] font-bold text-slate-600 uppercase tracking-wider">GRID UNIT METRIC AREA</span>
+        <span id="grid-metric-display" class="font-mono text-xs font-black text-black">7.031 × 10¹⁵ km² / sq</span>
+      </div>
+
+    </footer>
+
+  </div>
+
+  <script>
+    /* =========================================================================
+       ASTRONOMICAL DATA CATALOG (Keplerian Orbital Elements & Physical Stats)
+       ========================================================================= */
+    const CELESTIAL_DATA = {
+      Sun: {
+        name: 'Sun', type: 'STAR', radius: 9.0, color: 0x000000,
+        dist: '0.00 AU', speed: '0.0 km/s', period: 'N/A', ecc: '0.0000', inc: '0.00°', temp: '5,500 °C',
+        desc: 'The central star of the Solar System. Comprises 99.86% of the system mass.'
+      },
+      Mercury: {
+        name: 'Mercury', type: 'PLANET', radius: 1.0, color: 0x111111,
+        a: 0.3871, e: 0.2056, i: 7.005, N: 48.331, w: 29.124, M0: 174.796,
+        period: '0.24 yrs (88 days)', speed: '47.36 km/s', temp: '167 °C',
+        desc: 'Smallest planet and closest to the Sun. High eccentricity causes significant speed variation.',
+        moons: []
+      },
+      Venus: {
+        name: 'Venus', type: 'PLANET', radius: 1.5, color: 0x222222,
+        a: 0.7233, e: 0.0067, i: 3.394, N: 76.680, w: 54.884, M0: 50.115,
+        period: '0.62 yrs (225 days)', speed: '35.02 km/s', temp: '464 °C',
+        desc: 'Hottest planet with dense greenhouse atmosphere. Nearly perfect circular orbit.',
+        moons: []
+      },
+      Earth: {
+        name: 'Earth', type: 'PLANET', radius: 1.6, color: 0x000000,
+        a: 1.0000, e: 0.0167, i: 0.000, N: -11.260, w: 102.947, M0: 358.617,
+        period: '1.00 yr (365.25 days)', speed: '29.78 km/s', temp: '15 °C',
+        desc: 'Third planet from the Sun and the only known harbor of life.',
+        moons: ['Moon']
+      },
+      Mars: {
+        name: 'Mars', type: 'PLANET', radius: 1.2, color: 0x333333,
+        a: 1.5237, e: 0.0934, i: 1.850, N: 49.558, w: 286.502, M0: 19.373,
+        period: '1.88 yrs (687 days)', speed: '24.07 km/s', temp: '-63 °C',
+        desc: 'The Red Planet. Home to Olympus Mons and Valles Marineris.',
+        moons: ['Phobos', 'Deimos']
+      },
+      Ceres: {
+        name: 'Ceres', type: 'DWARF PLANET', radius: 0.7, color: 0x444444,
+        a: 2.767, e: 0.0758, i: 10.593, N: 80.329, w: 73.022, M0: 95.989,
+        period: '4.60 yrs', speed: '17.90 km/s', temp: '-105 °C',
+        desc: 'Largest object in the main asteroid belt between Mars and Jupiter.',
+        moons: []
+      },
+      Jupiter: {
+        name: 'Jupiter', type: 'PLANET', radius: 4.2, color: 0x111111,
+        a: 5.2044, e: 0.0489, i: 1.303, N: 100.464, w: 273.867, M0: 20.020,
+        period: '11.86 yrs', speed: '13.07 km/s', temp: '-110 °C',
+        desc: 'Massive gas giant with iconic Great Red Spot storm.',
+        moons: ['Io', 'Europa', 'Ganymede', 'Callisto']
+      },
+      Saturn: {
+        name: 'Saturn', type: 'PLANET', radius: 3.6, color: 0x222222, ring: true,
+        a: 9.5826, e: 0.0565, i: 2.485, N: 113.665, w: 339.392, M0: 317.020,
+        period: '29.46 yrs', speed: '9.68 km/s', temp: '-140 °C',
+        desc: 'Gas giant renowned for its extensive, bright icy ring system.',
+        moons: ['Titan', 'Enceladus', 'Mimas', 'Iapetus']
+      },
+      Uranus: {
+        name: 'Uranus', type: 'PLANET', radius: 2.8, color: 0x111111, ring: true,
+        a: 19.2184, e: 0.0463, i: 0.773, N: 74.006, w: 96.998, M0: 142.238,
+        period: '84.01 yrs', speed: '6.80 km/s', temp: '-195 °C',
+        desc: 'Ice giant with extreme axial tilt (97.8°), orbiting on its side.',
+        moons: ['Titania', 'Oberon', 'Umbriel', 'Ariel', 'Miranda']
+      },
+      Neptune: {
+        name: 'Neptune', type: 'PLANET', radius: 2.7, color: 0x222222, ring: true,
+        a: 30.1104, e: 0.00945, i: 1.770, N: 131.784, w: 273.187, M0: 256.228,
+        period: '164.8 yrs', speed: '5.43 km/s', temp: '-200 °C',
+        desc: 'Distant ice giant with fastest recorded planetary atmospheric winds.',
+        moons: ['Triton', 'Proteus']
+      },
+      Pluto: {
+        name: 'Pluto', type: 'DWARF PLANET', radius: 0.8, color: 0x333333,
+        a: 39.482, e: 0.2488, i: 17.16, N: 110.30, w: 113.76, M0: 14.53,
+        period: '247.9 yrs', speed: '4.74 km/s', temp: '-229 °C',
+        desc: 'Icy dwarf planet in the Kuiper Belt with high orbital inclination and eccentricity.',
+        moons: ['Charon']
+      },
+      Haumea: {
+        name: 'Haumea', type: 'DWARF PLANET', radius: 0.7, color: 0x444444,
+        a: 43.13, e: 0.1912, i: 28.19, N: 122.0, w: 240.2, M0: 205.0,
+        period: '283.8 yrs', speed: '4.53 km/s', temp: '-223 °C',
+        desc: 'Elongated dwarf planet due to extremely rapid rotation (3.9 hours).',
+        moons: ['Hiʻiaka', 'Namaka']
+      },
+      Makemake: {
+        name: 'Makemake', type: 'DWARF PLANET', radius: 0.7, color: 0x333333,
+        a: 45.43, e: 0.158, i: 28.96, N: 79.6, w: 295.9, M0: 165.5,
+        period: '306.2 yrs', speed: '4.41 km/s', temp: '-243 °C',
+        desc: 'Icy trans-Neptunian dwarf planet covered in frozen methane.',
+        moons: ['MK2']
+      },
+      Eris: {
+        name: 'Eris', type: 'DWARF PLANET', radius: 0.8, color: 0x222222,
+        a: 67.86, e: 0.436, i: 44.04, N: 35.9, w: 151.4, M0: 202.2,
+        period: '559.0 yrs', speed: '3.43 km/s', temp: '-243 °C',
+        desc: 'Massive dwarf planet in the scattered disc with extreme 44° orbital inclination.',
+        moons: ['Dysnomia']
+      },
+      AsteroidBelt: {
+        name: 'Asteroid Belt', type: 'DEBRIS ZONE',
+        desc: 'Circumstellar disc located between Mars and Jupiter (~2.1 to 3.3 AU) containing millions of rocky asteroids.'
+      },
+      KuiperBelt: {
+        name: 'Kuiper Belt', type: 'TRANS-NEPTUNIAN ZONE',
+        desc: 'Massive ring of icy bodies extending past Neptune (~30 to 55 AU) home to Pluto, Haumea, and Makemake.'
+      }
+    };
+
+    /* =========================================================================
+       APPLICATION STATE & SIMULATION ENGINE
+       ========================================================================= */
+    const DEG2RAD = Math.PI / 180;
+    const AU_TO_SCALED = 40.0;
+    
+    const state = {
+      scaleMode: 'FOCUS',
+      viewMode: '3D',
+      targetName: 'Sun',
+      
+      simDate: new Date(2026, 9, 29),
+      timeDirection: 1,
+      isPaused: false,
+      speedFactor: 1.0,
+      
+      showOrbits: true,
+      showAsteroids: true,
+      showKuiper: true,
+      showVectors: false,
+      showGrid: true
+    };
+
+    /* =========================================================================
+       KEPLER SOLVER
+       ========================================================================= */
+    function solveKepler(M, e) {
+      let E = M;
+      let delta = 1;
+      let iter = 0;
+      while (Math.abs(delta) > 1e-6 && iter < 100) {
+        delta = (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+        E -= delta;
+        iter++;
+      }
+      return E;
+    }
+
+    function getOrbitPosition(planet, daysFromEpoch) {
+      if (!planet.a) return new THREE.Vector3(0, 0, 0);
+
+      const n = (2 * Math.PI) / (planet.period.includes('yrs') ? parseFloat(planet.period) * 365.25 : parseFloat(planet.period));
+      const M = (planet.M0 * DEG2RAD + n * daysFromEpoch) % (2 * Math.PI);
+
+      const E = solveKepler(M, planet.e);
+
+      const x_orb = planet.a * (Math.cos(E) - planet.e);
+      const y_orb = planet.a * Math.sqrt(1 - planet.e * planet.e) * Math.sin(E);
+
+      const r = Math.sqrt(x_orb * x_orb + y_orb * y_orb);
+      const v = Math.atan2(y_orb, x_orb);
+
+      const N = planet.N * DEG2RAD;
+      const w = planet.w * DEG2RAD;
+      const i = planet.i * DEG2RAD;
+
+      const u = v + w;
+
+      const x = r * (Math.cos(N) * Math.cos(u) - Math.sin(N) * Math.sin(u) * Math.cos(i));
+      const z = r * (Math.sin(N) * Math.cos(u) + Math.cos(N) * Math.sin(u) * Math.cos(i));
+      const y = r * (Math.sin(u) * Math.sin(i));
+
+      return new THREE.Vector3(x, y, z);
+    }
+
+    function getScaledRadius(a) {
+      if (state.scaleMode === 'TRUE') {
+        return a * AU_TO_SCALED;
+      } else {
+        return Math.pow(a, 0.6) * 35.0;
+      }
+    }
+
+    /* =========================================================================
+       THREE.JS SETUP & HIGH-CONTRAST SCENE STYLING
+       ========================================================================= */
+    let scene, camera, renderer, controls;
+    let sunMesh, gridHelper, astronomicalGridHelper;
+    const bodyMeshes = {};
+    const orbitLines = {};
+    const vectorLines = {};
+    let asteroidBeltGroup, kuiperBeltGroup;
+    let asteroidZoneMesh, kuiperZoneMesh;
+
+    // Raycasting & Hover State Globals
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2(-1000, -1000);
+    const raycastTargets = [];
+    let hoveredObject = null;
+
+    function initThree() {
+      const container = document.getElementById('canvas-container');
+      
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xffffff);
+
+      camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 10000);
+      camera.position.set(0, 150, 300);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      container.appendChild(renderer.domElement);
+
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.maxDistance = 5000;
+      controls.minDistance = 2;
+
+      // High Contrast Lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
+      scene.add(ambientLight);
+
+      const dirLight = new THREE.DirectionalLight(0x000000, 1.5);
+      dirLight.position.set(100, 200, 100);
+      scene.add(dirLight);
+
+      // 1. Spatial Grid Helper (Preserved Visual Focus Grid: 2000 units / 50 divisions = 40 units/square)
+      gridHelper = new THREE.GridHelper(2000, 50, 0x000000, 0xcccccc);
+      gridHelper.position.y = -2;
+      scene.add(gridHelper);
+
+      // 2. True Astronomical Macro Grid Helper (Expanded: 10,000 units [250 AU] / 250 divisions = 40 units [1 AU]/square)
+      astronomicalGridHelper = new THREE.GridHelper(10000, 250, 0x000000, 0xd0d0d0);
+      astronomicalGridHelper.position.y = -2;
+      astronomicalGridHelper.visible = false;
+      scene.add(astronomicalGridHelper);
+
+      // Build Sun
+      const sunGeo = new THREE.SphereGeometry(CELESTIAL_DATA.Sun.radius, 32, 32);
+      const sunMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+      sunMesh = new THREE.Mesh(sunGeo, sunMat);
+      sunMesh.userData = { key: 'Sun' };
+      
+      // Outline Halo
+      const glowGeo = new THREE.SphereGeometry(CELESTIAL_DATA.Sun.radius * 1.15, 32, 32);
+      const glowMat = new THREE.MeshBasicMaterial({ color: 0x666666, wireframe: true });
+      sunMesh.add(new THREE.Mesh(glowGeo, glowMat));
+      scene.add(sunMesh);
+      raycastTargets.push(sunMesh);
+
+      // Build Celestial Catalog
+      Object.keys(CELESTIAL_DATA).forEach(key => {
+        if (key !== 'Sun' && key !== 'AsteroidBelt' && key !== 'KuiperBelt') {
+          buildCelestialBody(key);
+        }
+      });
+
+      // Build Belts
+      buildAsteroidBelt();
+      buildKuiperBelt();
+
+      window.addEventListener('resize', onWindowResize);
+      window.addEventListener('mousemove', onMouseMove);
+    }
+
+    function onMouseMove(event) {
+      // Convert screen coords to normalized device coordinates (-1 to +1)
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+      // Position Tooltip element
+      const tooltip = document.getElementById('hover-tooltip');
+      if (tooltip) {
+        tooltip.style.left = `${event.clientX + 14}px`;
+        tooltip.style.top = `${event.clientY + 14}px`;
+      }
+    }
+
+    /* =========================================================================
+       BUILD CELESTIAL BODIES WITH Crisp MONOCHROME OUTLINES
+       ========================================================================= */
+    function buildCelestialBody(key) {
+      const data = CELESTIAL_DATA[key];
+      
+      const geometry = new THREE.SphereGeometry(data.radius, 24, 24);
+      const material = new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        roughness: 0.2
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.userData = { key };
+
+      // White Contrast Outer Ring Outline
+      const wireGeo = new THREE.SphereGeometry(data.radius * 1.1, 16, 16);
+      const wireMat = new THREE.MeshBasicMaterial({ color: 0x888888, wireframe: true });
+      mesh.add(new THREE.Mesh(wireGeo, wireMat));
+      
+      // Saturn/Uranus Rings
+      if (data.ring) {
+        const ringGeo = new THREE.RingGeometry(data.radius * 1.4, data.radius * 2.3, 32);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
+        const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+        ringMesh.rotation.x = Math.PI / 2;
+        mesh.add(ringMesh);
+      }
+
+      scene.add(mesh);
+      bodyMeshes[key] = mesh;
+      raycastTargets.push(mesh);
+
+      // Velocity Vector Line
+      const vecMat = new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 });
+      const vecGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 5, 0)]);
+      const vecLine = new THREE.Line(vecGeo, vecMat);
+      scene.add(vecLine);
+      vectorLines[key] = vecLine;
+
+      rebuildOrbitLine(key);
+    }
+
+    function rebuildOrbitLine(key) {
+      const data = CELESTIAL_DATA[key];
+      if (!data.a) return;
+
+      if (orbitLines[key]) {
+        scene.remove(orbitLines[key]);
+      }
+
+      const points = [];
+      const segments = 128;
+      
+      for (let i = 0; i <= segments; i++) {
+        const days = (i / segments) * (data.period.includes('yrs') ? parseFloat(data.period) * 365.25 : parseFloat(data.period));
+        const posAU = getOrbitPosition(data, days);
+        const scaleFactor = getScaledRadius(data.a) / data.a;
+        points.push(new THREE.Vector3(posAU.x * scaleFactor, posAU.y * scaleFactor, posAU.z * scaleFactor));
+      }
+
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const material = new THREE.LineBasicMaterial({
+        color: 0x000000,
+        transparent: true,
+        opacity: data.type === 'DWARF PLANET' ? 0.3 : 0.75
+      });
+
+      const line = new THREE.Line(geometry, material);
+      scene.add(line);
+      orbitLines[key] = line;
+    }
+
+    /* =========================================================================
+       BELTS: TRANSPARENT HOLLOW ZONES WITH INSTANCED DEBRIS PARTICLES
+       ========================================================================= */
+    function buildAsteroidBelt() {
+      if (asteroidBeltGroup) {
+        scene.remove(asteroidBeltGroup);
+        const idx = raycastTargets.indexOf(asteroidZoneMesh);
+        if (idx !== -1) raycastTargets.splice(idx, 1);
+      }
+      asteroidBeltGroup = new THREE.Group();
+
+      const innerRadius = getScaledRadius(2.1);
+      const outerRadius = getScaledRadius(3.3);
+
+      // 1. Transparent Dark-Gray Shell Zone Mesh
+      const zoneGeo = new THREE.RingGeometry(innerRadius, outerRadius, 96, 16);
+      const zoneMat = new THREE.MeshBasicMaterial({
+        color: 0x333333,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.15,
+        depthWrite: false
+      });
+      asteroidZoneMesh = new THREE.Mesh(zoneGeo, zoneMat);
+      asteroidZoneMesh.rotation.x = Math.PI / 2;
+      asteroidZoneMesh.userData = { key: 'AsteroidBelt' };
+
+      // Inner and Outer border rings
+      const edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4 });
+      const innerBorder = new THREE.LineLoop(
+        new THREE.BufferGeometry().setFromPoints(new THREE.Path().absarc(0, 0, innerRadius, 0, Math.PI * 2, true).getPoints(128)),
+        edgeMat
+      );
+      const outerBorder = new THREE.LineLoop(
+        new THREE.BufferGeometry().setFromPoints(new THREE.Path().absarc(0, 0, outerRadius, 0, Math.PI * 2, true).getPoints(128)),
+        edgeMat
+      );
+      asteroidZoneMesh.add(innerBorder);
+      asteroidZoneMesh.add(outerBorder);
+      asteroidBeltGroup.add(asteroidZoneMesh);
+      raycastTargets.push(asteroidZoneMesh);
+
+      // 2. Instanced Asteroid Debris
+      const count = state.scaleMode === 'TRUE' ? 2500 : 1200;
+      const debrisGeo = new THREE.DodecahedronGeometry(0.35, 0);
+      const debrisMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
+      const debrisMesh = new THREE.InstancedMesh(debrisGeo, debrisMat, count);
+
+      const dummy = new THREE.Object3D();
+      for (let i = 0; i < count; i++) {
+        const r = innerRadius + Math.random() * (outerRadius - innerRadius);
+        const angle = Math.random() * Math.PI * 2;
+        const h = (Math.random() - 0.5) * (state.scaleMode === 'TRUE' ? 8 : 3);
+
+        dummy.position.set(
+          Math.cos(angle) * r,
+          h,
+          Math.sin(angle) * r
+        );
+        dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+        dummy.updateMatrix();
+        debrisMesh.setMatrixAt(i, dummy.matrix);
+      }
+      asteroidBeltGroup.add(debrisMesh);
+
+      scene.add(asteroidBeltGroup);
+    }
+
+    function buildKuiperBelt() {
+      if (kuiperBeltGroup) {
+        scene.remove(kuiperBeltGroup);
+        const idx = raycastTargets.indexOf(kuiperZoneMesh);
+        if (idx !== -1) raycastTargets.splice(idx, 1);
+      }
+      kuiperBeltGroup = new THREE.Group();
+
+      const innerRadius = getScaledRadius(30.0);
+      const outerRadius = getScaledRadius(55.0);
+
+      // 1. Transparent Dark-Gray Shell Zone Mesh
+      const zoneGeo = new THREE.RingGeometry(innerRadius, outerRadius, 96, 16);
+      const zoneMat = new THREE.MeshBasicMaterial({
+        color: 0x333333,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.18,
+        depthWrite: false
+      });
+      kuiperZoneMesh = new THREE.Mesh(zoneGeo, zoneMat);
+      kuiperZoneMesh.rotation.x = Math.PI / 2;
+      kuiperZoneMesh.userData = { key: 'KuiperBelt' };
+
+      // Inner and Outer border wireframe rings
+      const edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4 });
+      const innerBorder = new THREE.LineLoop(
+        new THREE.BufferGeometry().setFromPoints(new THREE.Path().absarc(0, 0, innerRadius, 0, Math.PI * 2, true).getPoints(128)),
+        edgeMat
+      );
+      const outerBorder = new THREE.LineLoop(
+        new THREE.BufferGeometry().setFromPoints(new THREE.Path().absarc(0, 0, outerRadius, 0, Math.PI * 2, true).getPoints(128)),
+        edgeMat
+      );
+      kuiperZoneMesh.add(innerBorder);
+      kuiperZoneMesh.add(outerBorder);
+      kuiperBeltGroup.add(kuiperZoneMesh);
+      raycastTargets.push(kuiperZoneMesh);
+
+      // 2. Instanced Kuiper Debris Particles
+      const count = state.scaleMode === 'TRUE' ? 3500 : 1500;
+      const debrisGeo = new THREE.TetrahedronGeometry(0.45, 0);
+      const debrisMat = new THREE.MeshBasicMaterial({ color: 0x444444 });
+      const debrisMesh = new THREE.InstancedMesh(debrisGeo, debrisMat, count);
+
+      const dummy = new THREE.Object3D();
+      for (let i = 0; i < count; i++) {
+        const r = innerRadius + Math.random() * (outerRadius - innerRadius);
+        const angle = Math.random() * Math.PI * 2;
+        const h = (Math.random() - 0.5) * (state.scaleMode === 'TRUE' ? 25 : 8);
+
+        dummy.position.set(
+          Math.cos(angle) * r,
+          h,
+          Math.sin(angle) * r
+        );
+        dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+        dummy.updateMatrix();
+        debrisMesh.setMatrixAt(i, dummy.matrix);
+      }
+      kuiperBeltGroup.add(debrisMesh);
+
+      scene.add(kuiperBeltGroup);
+    }
+
+    /* =========================================================================
+       RAYCASTING HOVER TOOLTIP LOGIC
+       ========================================================================= */
+    function checkRaycastHover() {
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(raycastTargets, false);
+
+      const tooltip = document.getElementById('hover-tooltip');
+      const tooltipTitle = document.getElementById('tooltip-title');
+      const tooltipDesc = document.getElementById('tooltip-desc');
+
+      if (intersects.length > 0) {
+        const hitObject = intersects[0].object;
+        const key = hitObject.userData ? hitObject.userData.key : null;
+
+        if (key && CELESTIAL_DATA[key]) {
+          const item = CELESTIAL_DATA[key];
+          tooltipTitle.innerText = item.name.toUpperCase();
+          tooltipDesc.innerText = item.desc;
+          tooltip.style.display = 'block';
+
+          if (hoveredObject !== hitObject) {
+            document.body.style.cursor = 'pointer';
+            hoveredObject = hitObject;
+          }
+          return;
+        }
+      }
+
+      tooltip.style.display = 'none';
+      document.body.style.cursor = 'default';
+      hoveredObject = null;
+    }
+
+    /* =========================================================================
+       SIMULATION LOOP & TELEMETRY UPDATES
+       ========================================================================= */
+    const J2000_EPOCH = new Date(2000, 0, 1, 12, 0, 0);
+    let lastClockTime = performance.now();
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const now = performance.now();
+      const deltaSec = (now - lastClockTime) / 1000.0;
+      lastClockTime = now;
+
+      if (!state.isPaused) {
+        const daysToAdd = deltaSec * state.speedFactor * state.timeDirection;
+        state.simDate.setTime(state.simDate.getTime() + daysToAdd * 86400000);
+        updateDateDisplay();
+      }
+
+      const daysFromEpoch = (state.simDate - J2000_EPOCH) / 86400000.0;
+
+      Object.keys(CELESTIAL_DATA).forEach(key => {
+        if (key === 'Sun' || key === 'AsteroidBelt' || key === 'KuiperBelt') return;
+
+        const data = CELESTIAL_DATA[key];
+        const mesh = bodyMeshes[key];
+        const posAU = getOrbitPosition(data, daysFromEpoch);
+
+        const scaleFactor = getScaledRadius(data.a) / data.a;
+        mesh.position.set(posAU.x * scaleFactor, posAU.y * scaleFactor, posAU.z * scaleFactor);
+
+        mesh.rotation.y += 0.01;
+
+        if (state.showVectors && vectorLines[key]) {
+          const dt = 0.5;
+          const posNext = getOrbitPosition(data, daysFromEpoch + dt);
+          const vel = new THREE.Vector3().subVectors(posNext, posAU).multiplyScalar(scaleFactor / dt);
+          
+          vectorLines[key].position.copy(mesh.position);
+          const points = [new THREE.Vector3(0,0,0), vel.multiplyScalar(2.0)];
+          vectorLines[key].geometry.setFromPoints(points);
+          vectorLines[key].visible = true;
+        } else if (vectorLines[key]) {
+          vectorLines[key].visible = false;
+        }
+      });
+
+      if (asteroidBeltGroup) asteroidBeltGroup.rotation.y += 0.0002 * state.timeDirection;
+      if (kuiperBeltGroup) kuiperBeltGroup.rotation.y += 0.00005 * state.timeDirection;
+
+      if (state.targetName !== 'Sun' && bodyMeshes[state.targetName]) {
+        const targetPos = bodyMeshes[state.targetName].position;
+        controls.target.lerp(targetPos, 0.05);
+      } else {
+        controls.target.lerp(new THREE.Vector3(0,0,0), 0.05);
+      }
+
+      updateTelemetryHUD(daysFromEpoch);
+      checkRaycastHover();
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    function updateTelemetryHUD(daysFromEpoch) {
+      const data = CELESTIAL_DATA[state.targetName];
+      if (!data) return;
+
+      document.getElementById('target-name').innerText = data.name;
+      document.getElementById('target-type').innerText = data.type;
+      document.getElementById('target-desc').innerText = data.desc;
+
+      if (data.name === 'Sun') {
+        document.getElementById('telemetry-dist').innerText = '0.00 AU';
+        document.getElementById('telemetry-speed').innerText = '0.0 km/s';
+        document.getElementById('telemetry-period').innerText = 'N/A';
+        document.getElementById('telemetry-ecc').innerText = '0.0000';
+        document.getElementById('telemetry-inc').innerText = '0.00°';
+        document.getElementById('telemetry-temp').innerText = '5,500 °C';
+        document.getElementById('moons-container').classList.add('hidden');
+      } else if (data.a) {
+        const posAU = getOrbitPosition(data, daysFromEpoch);
+        const r_au = posAU.length();
+        
+        const speed_kms = (data.speed ? parseFloat(data.speed) : 20.0) * Math.sqrt(Math.max(0.1, (2 / r_au - 1 / data.a)));
+
+        document.getElementById('telemetry-dist').innerText = `${r_au.toFixed(3)} AU`;
+        document.getElementById('telemetry-speed').innerText = `${speed_kms.toFixed(2)} km/s`;
+        document.getElementById('telemetry-period').innerText = data.period;
+        document.getElementById('telemetry-ecc').innerText = data.e.toFixed(4);
+        document.getElementById('telemetry-inc').innerText = `${data.i.toFixed(2)}°`;
+        document.getElementById('telemetry-temp').innerText = data.temp;
+
+        const moonsList = document.getElementById('moons-list');
+        if (data.moons && data.moons.length > 0) {
+          moonsList.innerHTML = data.moons.map(m => `<span class="px-2 py-0.5 bg-black text-white border border-black font-bold">${m}</span>`).join('');
+          document.getElementById('moons-container').classList.remove('hidden');
+        } else {
+          document.getElementById('moons-container').classList.add('hidden');
+        }
+      }
+    }
+
+    function updateDateDisplay() {
+      const year = state.simDate.getFullYear();
+      const month = String(state.simDate.getMonth() + 1).padStart(2, '0');
+      const day = String(state.simDate.getDate()).padStart(2, '0');
+      document.getElementById('current-date-display').innerText = `${year}-${month}-${day}`;
+    }
+
+    function updateGridReferenceDisplay() {
+      const isGridVisible = state.showGrid;
+      const gridMetricLabel = document.getElementById('grid-metric-display');
+
+      if (state.scaleMode === 'TRUE') {
+        gridHelper.visible = false;
+        astronomicalGridHelper.visible = isGridVisible;
+        // In True scale, each 40-unit grid division represents 1 AU x 1 AU
+        // 1 AU = 149,597,870.7 km => (1 AU)^2 = 2.23795 × 10^16 km^2
+        gridMetricLabel.innerText = "2.238 × 10¹⁶ km² / sq (1 AU × 1 AU)";
+      } else {
+        astronomicalGridHelper.visible = false;
+        gridHelper.visible = isGridVisible;
+        // In Focus mode, 2000 units / 50 divisions = 40 units/square = ~0.56 AU x 0.56 AU equivalent
+        gridMetricLabel.innerText = "7.031 × 10¹⁵ km² / sq (Focus Relative)";
+      }
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    /* =========================================================================
+       UI BUILDER & CONTROLLERS
+       ========================================================================= */
+    function initUI() {
+      const listContainer = document.getElementById('planet-buttons-list');
+      Object.keys(CELESTIAL_DATA).forEach(key => {
+        if (key === 'AsteroidBelt' || key === 'KuiperBelt') return;
+        const item = CELESTIAL_DATA[key];
+        const btn = document.createElement('button');
+        btn.className = `hud-btn px-2 py-1.5 text-left truncate uppercase text-[11px] ${key === 'Sun' ? 'active' : ''}`;
+        btn.innerText = item.name;
+        btn.onclick = () => selectTarget(key, btn);
+        listContainer.appendChild(btn);
+      });
+
+      const btnPlay = document.getElementById('btn-play');
+      btnPlay.onclick = () => {
+        state.isPaused = !state.isPaused;
+        btnPlay.innerText = state.isPaused ? 'PLAY' : 'PAUSE';
+        btnPlay.classList.toggle('active', !state.isPaused);
+      };
+
+      document.getElementById('btn-reverse').onclick = () => {
+        state.timeDirection = -1;
+        state.isPaused = false;
+        btnPlay.innerText = 'PAUSE';
+        btnPlay.classList.add('active');
+      };
+
+      document.getElementById('btn-forward').onclick = () => {
+        state.timeDirection = 1;
+        state.isPaused = false;
+        btnPlay.innerText = 'PAUSE';
+        btnPlay.classList.add('active');
+      };
+
+      const slider = document.getElementById('time-speed-slider');
+      const speedLabel = document.getElementById('time-speed-label');
+      slider.oninput = (e) => {
+        const val = parseFloat(e.target.value);
+        const daysPerSec = Math.pow(10, val * 0.5);
+        state.speedFactor = daysPerSec;
+        if (daysPerSec >= 365) {
+          speedLabel.innerText = `${(daysPerSec / 365.25).toFixed(1)} Yrs/s`;
+        } else {
+          speedLabel.innerText = `${Math.round(daysPerSec)} Days/s`;
+        }
+      };
+
+      const datePicker = document.getElementById('date-picker');
+      datePicker.onchange = (e) => {
+        if (e.target.value) {
+          state.simDate = new Date(e.target.value);
+          updateDateDisplay();
+        }
+      };
+
+      const btnView = document.getElementById('btn-view');
+      btnView.onclick = () => {
+        if (state.viewMode === '3D') {
+          state.viewMode = '2D';
+          btnView.innerText = 'VIEW: 2D PLANAR';
+          camera.position.set(0, 450, 0);
+          controls.maxPolarAngle = 0.01;
+        } else {
+          state.viewMode = '3D';
+          btnView.innerText = 'VIEW: 3D ORBIT';
+          camera.position.set(0, 150, 300);
+          controls.maxPolarAngle = Math.PI;
+        }
+      };
+
+      const btnScale = document.getElementById('btn-scale');
+      btnScale.onclick = () => {
+        state.scaleMode = state.scaleMode === 'FOCUS' ? 'TRUE' : 'FOCUS';
+        btnScale.innerText = `SCALE: ${state.scaleMode === 'FOCUS' ? 'VISUAL FOCUS' : 'TRUE ASTRONOMICAL'}`;
+        
+        Object.keys(CELESTIAL_DATA).forEach(key => {
+          if (key !== 'Sun' && key !== 'AsteroidBelt' && key !== 'KuiperBelt') rebuildOrbitLine(key);
+        });
+
+        // Rebuild particle belts to reflect exact scale volume & position expansion
+        buildAsteroidBelt();
+        buildKuiperBelt();
+
+        // Toggle Grid visibility and display metric values
+        updateGridReferenceDisplay();
+      };
+
+      document.getElementById('btn-reset-cam').onclick = () => {
+        selectTarget('Sun');
+        camera.position.set(0, 150, 300);
+      };
+
+      document.getElementById('toggle-orbits').onchange = (e) => {
+        state.showOrbits = e.target.checked;
+        Object.values(orbitLines).forEach(line => line.visible = state.showOrbits);
+      };
+
+      document.getElementById('toggle-asteroids').onchange = (e) => {
+        if (asteroidBeltGroup) asteroidBeltGroup.visible = e.target.checked;
+      };
+
+      document.getElementById('toggle-kuiper').onchange = (e) => {
+        if (kuiperBeltGroup) kuiperBeltGroup.visible = e.target.checked;
+      };
+
+      document.getElementById('toggle-vectors').onchange = (e) => {
+        state.showVectors = e.target.checked;
+      };
+
+      document.getElementById('toggle-grid').onchange = (e) => {
+        state.showGrid = e.target.checked;
+        updateGridReferenceDisplay();
+      };
+    }
+
+    function selectTarget(name, clickedBtn) {
+      state.targetName = name;
+      
+      const buttons = document.querySelectorAll('#planet-buttons-list button');
+      buttons.forEach(btn => btn.classList.remove('active'));
+
+      if (clickedBtn) {
+        clickedBtn.classList.add('active');
+      }
+
+      if (name === 'Sun') {
+        controls.target.set(0, 0, 0);
+      }
+    }
+
+    /* =========================================================================
+       APPLICATION BOOTSTRAP
+       ========================================================================= */
+    window.onload = () => {
+      initThree();
+      initUI();
+      updateDateDisplay();
+      updateGridReferenceDisplay();
+      animate();
+    };
+  </script>
+</body>
+</html>
